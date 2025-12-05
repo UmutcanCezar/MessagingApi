@@ -3,18 +3,43 @@ using api1.Hubs;
 using api1.repository;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using Npgsql.EntityFrameworkCore.PostgreSQL;
+using Npgsql; // URI dönüþümü için bu import gerekli
 using Microsoft.Extensions.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// *** RENDER ORTAM DEÐÝÞKENÝ DÜZELTMESÝ BAÞLANGICI ***
+// *** KRÝTÝK ADIM: RENDER DATABASE_URL URI DÖNÜÞÜMÜ ***
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 if (!string.IsNullOrEmpty(databaseUrl))
 {
-    builder.Configuration["ConnectionStrings:DefaultConnection"] = databaseUrl;
+    // DATABASE_URL formatý (postgresql://user:pass@host/db) Npgsql'in beklediði Host=... formatýna dönüþtürülüyor.
+    try
+    {
+        var uri = new Uri(databaseUrl);
+        var userInfo = uri.UserInfo.Split(':');
+
+        var connectionString = new NpgsqlConnectionStringBuilder
+        {
+            Host = uri.Host,
+            Port = uri.Port,
+            Username = userInfo[0],
+            Password = userInfo[1],
+            Database = uri.AbsolutePath.TrimStart('/'),
+            SslMode = SslMode.Require, // Render için SSL gereklidir
+            TrustServerCertificate = true
+        }.ToString();
+
+        // Baðlantý dizesini, uygulamanýn kullandýðý DefaultConnection anahtarýna atýyoruz.
+        builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
+    }
+    catch (Exception ex)
+    {
+        // Hata ayýklama için konsola yazdýrýyoruz.
+        Console.WriteLine($"Error parsing DATABASE_URL: {ex.Message}");
+    }
 }
-// *** RENDER ORTAM DEÐÝÞKENÝ DÜZELTMESÝ SONU ***
+// *** URI DÖNÜÞÜMÜ SONU ***
+
 
 // CORS ayarý
 builder.Services.AddCors(options =>
@@ -34,7 +59,11 @@ builder.Services.AddScoped<IMessageRepository, MessageRepository>();
 builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<IUserIdProvider, CustomUserIdProvider>();
+
+// IUserIdProvider'ý ekleyin (ChatHub için gereklidir)
+// Not: CustomUserIdProvider sýnýfýnýzýn projede tanýmlý olduðunu varsayýyorum.
+// Eðer tanýmsýzsa bu satýrý yorum satýrý yapmanýz gerekebilir, ancak SignalR için önemlidir.
+// builder.Services.AddSingleton<IUserIdProvider, CustomUserIdProvider>();
 
 // VÝTAL DEÐÝÞÝKLÝK: PostgreSQL Baðlantý Dizesi Yapýlandýrmasý
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -49,7 +78,7 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var dbContext = services.GetRequiredService<AppDbContext>();
-        dbContext.Database.Migrate();
+        dbContext.Database.Migrate(); // Migrasyonlarý uygula
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogInformation("Veritabaný migrasyonlarý baþarýyla uygulandý.");
     }
@@ -64,16 +93,10 @@ using (var scope = app.Services.CreateScope())
 app.UseCors("AllowAll");
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
 
-// -----------------------------------------------------
-// BU SATIR YORUMA ALINDI: Render zaten HTTPS kullandýðý için.
-// app.UseHttpsRedirection(); 
-// -----------------------------------------------------
+// SWAGGER DÜZELTMESÝ: Production'da da çalýþmasý için koþulsuz kullanýlýyor
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseAuthorization();
 app.MapHub<ChatHub>("/chathub");

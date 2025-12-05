@@ -12,6 +12,8 @@ using api1.Hubs;
 using Microsoft.AspNetCore.Hosting;
 using api1.repository;
 using Microsoft.AspNetCore.SignalR;
+// Hata Düzeltmesi: ChatAppDbContext sınıfını bulabilmek için root namespace'i ekliyoruz.
+using api1;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,7 +35,8 @@ if (!string.IsNullOrEmpty(databaseUrl))
             Username = userInfo[0],
             Password = userInfo[1],
             SslMode = SslMode.Require,
-            TrustServerCertificate = true
+            // Npgsql uyarısı nedeniyle TrustServerCertificate kaldırıldı.
+            // TrustServerCertificate = true 
         }.ToString();
 
         // Render ortam değişkenini kullanarak DefaultConnection'ı yapılandır
@@ -66,7 +69,7 @@ if (port != null)
 // --- SERVİS EKLEMELERİ ---
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(); // Swagger servisi her zaman eklenir
 builder.Services.AddSignalR();
 // --- BAĞIMLILIK ENJEKSİYONU DÜZELTMESİ ---
 builder.Services.AddScoped<api1.repository.IMessageRepository, api1.repository.MessageRepository>();
@@ -119,11 +122,18 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors("CorsPolicy");
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Tüm ortamlarda Swagger'ı aktif hale getirdik
+// Güvenlik uyarısı: Bu, üretim ortamında API detaylarını ifşa eder.
+app.UseSwagger();
+app.UseSwaggerUI();
+
+
+// if (app.Environment.IsDevelopment())
+// {
+//     app.UseSwagger();
+//     app.UseSwaggerUI();
+// }
+
 
 // Render health check için genellikle kaldırılır, ama https zorunluysa kalmalı.
 // SignalR için WebSockets'ta sorun çıkarabilir.

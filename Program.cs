@@ -119,7 +119,7 @@ if (app.Environment.IsDevelopment())
 }
 // Swagger'ı Production'da kullanmak isterseniz üstteki if bloğunu kaldırabilirsiniz.
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection(); // RENDER'DAKİ HEALTH CHECK SORUNUNU ÇÖZMEK İÇİN KALDIRILDI
 app.UseAuthentication();
 app.UseAuthorization();
 

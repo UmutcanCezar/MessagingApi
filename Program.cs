@@ -8,6 +8,16 @@ using Microsoft.Extensions.DependencyInjection; // IServiceScopeFactory için ger
 
 var builder = WebApplication.CreateBuilder(args);
 
+// *** RENDER ORTAM DEÐÝÞKENÝ DÜZELTMESÝ BAÞLANGICI ***
+// Render'da tanýmlanan DATABASE_URL deðiþkenini okur ve DefaultConnection olarak ayarlar.
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+if (!string.IsNullOrEmpty(databaseUrl))
+{
+    builder.Configuration["ConnectionStrings:DefaultConnection"] = databaseUrl;
+}
+// *** RENDER ORTAM DEÐÝÞKENÝ DÜZELTMESÝ SONU ***
+
+
 // CORS ayarý
 builder.Services.AddCors(options =>
 {

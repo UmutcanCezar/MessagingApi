@@ -1,23 +1,18 @@
-using api1.Data;
+ï»¿using api1.Data;
+using api1.Hubs;
+using api1.repository;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
-using System.Collections.Generic; // KeyValuePair için eklendi
-using System; // Environment ve Uri için eklendi
-using Microsoft.Extensions.Logging;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.Configuration;
+using Npgsql; // URI dï¿½nï¿½ï¿½ï¿½mï¿½ iï¿½in bu import gerekli
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using api1.Hubs; // ChatHub'ýnýzýn bulunduðu namespace
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- VÝTAL DÜZELTME: RENDER DATABASE_URL'ÝNÝ ÇEVÝRME ---
-// Bu blok, Render ortamýnda veritabaný baðlantý dizesini dinamik olarak ayarlar.
+// *** KRï¿½Tï¿½K ADIM: RENDER DATABASE_URL URI Dï¿½Nï¿½ï¿½ï¿½Mï¿½ ***
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 if (!string.IsNullOrEmpty(databaseUrl))
 {
-    Console.WriteLine("--> Using DATABASE_URL environment variable for connection string.");
+    // DATABASE_URL formatï¿½ (postgresql://user:pass@host/db) Npgsql'in beklediï¿½i Host=... formatï¿½na dï¿½nï¿½ï¿½tï¿½rï¿½lï¿½yor.
     try
     {
         var uri = new Uri(databaseUrl);
@@ -27,90 +22,83 @@ if (!string.IsNullOrEmpty(databaseUrl))
         {
             Host = uri.Host,
             Port = uri.Port,
-            Database = uri.AbsolutePath.Trim('/'),
             Username = userInfo[0],
             Password = userInfo[1],
-            SslMode = SslMode.Require, // Render için zorunlu (SSL kullanýlmalý)
-            TrustServerCertificate = true // Sertifika doðrulamasý
+            Database = uri.AbsolutePath.TrimStart('/'),
+            SslMode = SslMode.Require, // Render iï¿½in SSL gereklidir
+            TrustServerCertificate = true
         }.ToString();
 
-        // Yeni oluþturulan baðlantý dizesini DefaultConnection olarak yapýlandýrmaya ekle
-        builder.Configuration.AddInMemoryCollection(new[]
-        {
-            new KeyValuePair<string, string>("ConnectionStrings:DefaultConnection", connectionString)
-        });
+        // Baï¿½lantï¿½ dizesini, uygulamanï¿½n kullandï¿½ï¿½ï¿½ DefaultConnection anahtarï¿½na atï¿½yoruz.
+        builder.Configuration["ConnectionStrings:DefaultConnection"] = connectionString;
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"FATAL: Failed to parse DATABASE_URL: {ex.Message}");
+        // Hata ayï¿½klama iï¿½in konsola yazdï¿½rï¿½yoruz.
+        Console.WriteLine($"Error parsing DATABASE_URL: {ex.Message}");
     }
 }
-// --- DÜZELTME SONU ---
+// *** URI Dï¿½Nï¿½ï¿½ï¿½Mï¿½ SONU ***
 
 
-// --- SERVÝS EKLEMELERÝ ---
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-builder.Services.AddSignalR();
-
-// CORS politikasý
+// CORS ayarï¿½
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll",
-        builder =>
-        {
-            builder.AllowAnyMethod()
-                   .AllowAnyHeader()
-                   .AllowCredentials()
-                   // TODO: Burayý KENDÝ CANLI RENDER URL'ÝNÝZ ÝLE DEÐÝÞTÝRMEYÝ UNUTMAYIN!
-                   .WithOrigins("http://localhost:3000", "https://your-frontend-url.onrender.com");
-        });
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.WithOrigins("http://127.0.0.1:5500", "http://localhost:5500", "https://*.onrender.com")
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials();
+    });
 });
 
-// Veritabaný Baðlantýsý
+// Add services to the container.
+builder.Services.AddControllers();
+builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+builder.Services.AddSignalR();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// IUserIdProvider'ï¿½ ekleyin (ChatHub iï¿½in gereklidir)
+// Not: CustomUserIdProvider sï¿½nï¿½fï¿½nï¿½zï¿½n projede tanï¿½mlï¿½ olduï¿½unu varsayï¿½yorum.
+// Eï¿½er tanï¿½msï¿½zsa bu satï¿½rï¿½ yorum satï¿½rï¿½ yapmanï¿½z gerekebilir, ancak SignalR iï¿½in ï¿½nemlidir.
+// builder.Services.AddSingleton<IUserIdProvider, CustomUserIdProvider>();
+
+// Vï¿½TAL DEï¿½ï¿½ï¿½ï¿½KLï¿½K: PostgreSQL Baï¿½lantï¿½ Dizesi Yapï¿½landï¿½rmasï¿½
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
 
-// --- VÝTAL: OTOMATÝK MÝGRASYON BLOÐU ---
+// --- Vï¿½TAL: OTOMATï¿½K Mï¿½GRASYON BLOï¿½U ---
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     try
     {
         var dbContext = services.GetRequiredService<AppDbContext>();
-
-        // Bu noktada baðlantý dizesi doðru ayarlanmýþ olmalý.
-        dbContext.Database.Migrate(); // Migrasyonlarý uygula
+        dbContext.Database.Migrate(); // Migrasyonlarï¿½ uygula
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogInformation("Veritabaný migrasyonlarý baþarýyla uygulandý.");
+        logger.LogInformation("Veritabanï¿½ migrasyonlarï¿½ baï¿½arï¿½yla uygulandï¿½.");
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Veritabaný migrasyonu sýrasýnda bir hata oluþtu: {Message}", ex.Message);
-
-        // Hata oluþursa uygulamanýn kapanmasý için
-        Environment.Exit(1);
+        logger.LogError(ex, "Veritabanï¿½ migrasyonu sï¿½rasï¿½nda bir hata oluï¿½tu.");
     }
 }
-// --- OTOMATÝK MÝGRASYON BLOÐU BÝTÝÞÝ ---
+// --- OTOMATï¿½K Mï¿½GRASYON BLOï¿½U Bï¿½Tï¿½ï¿½ï¿½ ---
 
 app.UseCors("AllowAll");
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Configure the HTTP request pipeline.
 
-app.UseHttpsRedirection();
-app.UseAuthentication();
+// SWAGGER Dï¿½ZELTMESï¿½: Production'da da ï¿½alï¿½ï¿½masï¿½ iï¿½in koï¿½ulsuz kullanï¿½lï¿½yor
+app.UseSwagger();
+app.UseSwaggerUI();
+
 app.UseAuthorization();
-
-// VÝTAL KONTROL: SignalR Hub Haritalamasý
 app.MapHub<ChatHub>("/chathub");
 
 app.MapControllers();

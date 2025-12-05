@@ -12,12 +12,11 @@ using api1.Hubs;
 using Microsoft.AspNetCore.Hosting;
 using api1.repository;
 using Microsoft.AspNetCore.SignalR;
-// Hata Düzeltmesi: ChatAppDbContext sınıfını bulabilmek için root namespace'i ekliyoruz.
 using api1;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- RENDER'A ÖZEL DÜZELTME 1: DATABASE_URL'İ ÇEVİRME ---
+// --- RENDER DATABASE_URL AYARI ---
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 if (!string.IsNullOrEmpty(databaseUrl))
 {
@@ -34,12 +33,9 @@ if (!string.IsNullOrEmpty(databaseUrl))
             Database = uri.AbsolutePath.Trim('/'),
             Username = userInfo[0],
             Password = userInfo[1],
-            SslMode = SslMode.Require,
-            // Npgsql uyarısı nedeniyle TrustServerCertificate kaldırıldı.
-            // TrustServerCertificate = true 
+            SslMode = SslMode.Require
         }.ToString();
 
-        // Render ortam değişkenini kullanarak DefaultConnection'ı yapılandır
         builder.Configuration.AddInMemoryCollection(new[]
         {
             new KeyValuePair<string, string>("ConnectionStrings:DefaultConnection", connectionString)
@@ -50,10 +46,8 @@ if (!string.IsNullOrEmpty(databaseUrl))
         Console.WriteLine($"FATAL: Failed to parse DATABASE_URL: {ex.Message}");
     }
 }
-// --- DÜZELTME SONU ---
 
-
-// --- RENDER'A ÖZEL DÜZELTME 2: PORT DİNLEME AYARI ---
+// --- RENDER PORT AYARI ---
 var port = Environment.GetEnvironmentVariable("PORT");
 if (port != null)
 {
@@ -63,92 +57,70 @@ if (port != null)
     });
     Console.WriteLine($"--> Kestrel listening on port {port}");
 }
-// --- PORT DÜZELTMESİ SONU ---
 
-
-// --- SERVİS EKLEMELERİ ---
+// --- SERVİSLER ---
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(); // Swagger servisi her zaman eklenir
+builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
-// --- BAĞIMLILIK ENJEKSİYONU DÜZELTMESİ ---
-builder.Services.AddScoped<api1.repository.IMessageRepository, api1.repository.MessageRepository>();
 
-// CORS politikası
+builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+
+// --- RENDER + SIGNALR UYUMLU CORS AYARI ---
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("CorsPolicy",
-        policy =>
-        {
-            policy.WithOrigins(
-                "https://chatapp-api-5smg.onrender.com",
-                "http://127.0.0.1:5500"
-            // Diğer frontend URL'lerinizi buraya ekleyin
-            )
+    options.AddPolicy("CorsPolicy", policy =>
+    {
+        policy
+            .SetIsOriginAllowed(_ => true)      // Render için zorunlu
             .AllowAnyHeader()
-            .WithMethods("GET", "POST")
+            .AllowAnyMethod()                   // SignalR için şart!!
             .AllowCredentials();
-        });
+    });
 });
 
-// Veritabanı Bağlantısı
-// Render ortamında DATABASE_URL kullanıldıysa o bağlantı dizesi kullanılır.
-// Aksi takdirde appsettings.json'daki kullanılır.
+// --- DATABASE ---
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
 
-// --- OTOMATİK MİGRASYON BLOĞU ---
+// --- OTOMATİK MIGRATION ---
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     try
     {
         var dbContext = services.GetRequiredService<AppDbContext>();
-        // dbContext.Database.EnsureCreated(); // Migration kullanıldığı için bu genellikle gereksizdir.
         dbContext.Database.Migrate();
+
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogInformation("Veritabanı migrasyonları başarıyla uygulandı.");
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "Veritabanı migrasyonu sırasında bir hata oluştu: {Message}", ex.Message);
-        // Hata durumunda uygulama çıkışı yapılabilir, bu Render'a hatayı bildirir.
+        logger.LogError(ex, "Veritabanı migrasyonu sırasında hata oluştu: {Message}", ex.Message);
     }
 }
-// --- OTOMATİK MİGRASYON BLOĞU BİTİŞİ ---
 
 app.UseCors("CorsPolicy");
 
-// Tüm ortamlarda Swagger'ı aktif hale getirdik
-// Güvenlik uyarısı: Bu, üretim ortamında API detaylarını ifşa eder.
+// --- Swagger ---
 app.UseSwagger();
 app.UseSwaggerUI();
 
-
-// if (app.Environment.IsDevelopment())
-// {
-//     app.UseSwagger();
-//     app.UseSwaggerUI();
-// }
-
-
-// Render health check için genellikle kaldırılır, ama https zorunluysa kalmalı.
-// SignalR için WebSockets'ta sorun çıkarabilir.
-// app.UseHttpsRedirection(); 
+// app.UseHttpsRedirection(); // Render + SignalR için kapalı olmalı
 
 app.UseAuthorization();
 
-// --- RENDER HEALTH CHECK ENDPOINT'İ (Opsiyonel ama faydalı) ---
+// --- HEALTH CHECK ---
 app.MapGet("/", () => "API is running successfully!");
-// --- HEALTH CHECK SONU ---
 
-
-// SignalR Hub Haritalaması
+// --- SIGNALR HUB ROUTE ---
 app.MapHub<ChatHub>("/chathub");
 
+// --- CONTROLLERS ---
 app.MapControllers();
 
 app.Run();

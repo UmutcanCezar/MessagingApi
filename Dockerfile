@@ -1,29 +1,34 @@
-# Build a�amas�
+# 1. Aşama: Derleme (Build)
+# SDK (Software Development Kit) imajını kullan
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 
-# Sadece csproj dosyas�n� kopyalayarak ba��ml�l�klar� geri y�kle
-COPY api1/*.csproj ./api1/
-RUN dotnet restore ./api1/api1.csproj
+# .csproj dosyasını kopyalayarak restore işlemini önbelleğe al
+# Düzeltme 1: api1/ klasörünü kaldırdık. Doğrudan kök dizinden kopyalama.
+COPY api1.csproj . 
 
-# Geri kalan kaynak kodunu kopyala ve yay�nla
-COPY api1/. ./api1/
-RUN dotnet publish ./api1/api1.csproj -c Release -o out
+# Proje bağımlılıklarını geri yükle (restore)
+# Düzeltme 2: restore komutundaki api1/ klasörünü kaldırdık.
+RUN dotnet restore
 
-# Runtime a�amas�
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+# Geri kalan tüm kaynak kodunu kopyala
+# Düzeltme 3: COPY komutunda kaynak (sol taraf) ve hedef (sağ taraf) klasör adlarını kaldırdık.
+# Sadece . (bulunduğun dizin) kopyalanacak.
+COPY . .
+
+# Uygulamayı yayınla (publish)
+# Düzeltme 4: publish komutundaki api1/ klasörünü kaldırdık.
+RUN dotnet publish -c Release -o out
+
+# -----------------------------------------------------------
+
+# 2. Aşama: Çalıştırma (Runtime)
+# ASPNET imajını kullan (daha küçük ve güvenli)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# Yay�nlanm�� dosyalar� kopyala
-COPY --from=build /app/api1/out .
+# Çalışma klasörüne yayınlanmış dosyaları kopyala
+COPY --from=build /app/out .
 
-# Render'da dinamik PORT'u dinlemesi i�in ASPNETCORE_URLS'i ayarla.
-# Bu, Kestrel'i ortam de�i�keni olan $PORT'u dinlemeye zorlar.
-ENV ASPNETCORE_URLS=http://+:$PORT
-
-# Not: EXPOSE 5000'i kald�rabiliriz, ��nk� dinamik port kullanaca��z,
-# ancak konteynerin i�inden herhangi bir portu d��ar� a�mak Render i�in yeterlidir.
-EXPOSE 8080 
-
-# Uygulamay� ba�latma komutu
+# Uygulamayı başlat
 ENTRYPOINT ["dotnet", "api1.dll"]

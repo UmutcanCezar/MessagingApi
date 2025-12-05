@@ -1,0 +1,18 @@
+# 1. Base image (runtime)
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 80 443
+
+# 2. Build image (SDK)
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["MessagingApi.csproj", "./"]
+RUN dotnet restore "./MessagingApi.csproj"
+COPY . .
+RUN dotnet publish "MessagingApi.csproj" -c Release -o /app/publish
+
+# 3. Final image
+FROM base AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "MessagingApi.dll"]

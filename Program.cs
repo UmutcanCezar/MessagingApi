@@ -94,7 +94,7 @@ builder.Services.AddCors(options =>
 // Veritabanı Bağlantısı
 // Render ortamında DATABASE_URL kullanıldıysa o bağlantı dizesi kullanılır.
 // Aksi takdirde appsettings.json'daki kullanılır.
-builder.Services.AddDbContext<ChatAppDbContext>(options =>
+builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
@@ -105,7 +105,7 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     try
     {
-        var dbContext = services.GetRequiredService<ChatAppDbContext>();
+        var dbContext = services.GetRequiredService<AppDbContext>();
         // dbContext.Database.EnsureCreated(); // Migration kullanıldığı için bu genellikle gereksizdir.
         dbContext.Database.Migrate();
         var logger = services.GetRequiredService<ILogger<Program>>();

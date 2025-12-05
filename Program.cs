@@ -62,7 +62,11 @@ if (port != null)
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
 builder.Services.AddSignalR();
+
+// CustomUserIdProvider EKLEMESİ (ÖNEMLİ!!!!)
+builder.Services.AddSingleton<IUserIdProvider, CustomUserIdProvider>();
 
 builder.Services.AddScoped<IMessageRepository, MessageRepository>();
 
@@ -72,9 +76,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("CorsPolicy", policy =>
     {
         policy
-            .SetIsOriginAllowed(_ => true)      // Render için zorunlu
+            .SetIsOriginAllowed(_ => true) // Render için zorunlu
             .AllowAnyHeader()
-            .AllowAnyMethod()                   // SignalR için şart!!
+            .AllowAnyMethod()              // SignalR için şart
             .AllowCredentials();
     });
 });
@@ -110,7 +114,8 @@ app.UseCors("CorsPolicy");
 app.UseSwagger();
 app.UseSwaggerUI();
 
-// app.UseHttpsRedirection(); // Render + SignalR için kapalı olmalı
+// HTTPS kapalı kalmalı
+// app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
